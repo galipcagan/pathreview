@@ -21,3 +21,18 @@ The `/health` endpoint already returns a `safety_events_last_hour` field in its 
 - Note: another cohort member (RadRebelSam) commented on this issue two weeks ago saying they started work on branch `fix/68-health-check-safety-event-count`, and there's an open PR (#210) already linked to the issue. Proceeding anyway — duplication is acceptable here — but this is worth being aware of if the issue gets closed out from under this branch.
 
 **Cohort ledger:** [ ] Issue added to cohort ledger
+
+## Week 8 — Reproduction & solution planning
+
+**Reproduction commit link:** [link to this commit — fill in after pushing]
+
+**Reproduction summary:**
+Started the backend locally (`uvicorn api.main:app --reload --host 0.0.0.0 --port 8000`) with `db`/`redis`/`vector-db` up via `docker compose up -d`, then sent a `GET http://localhost:8000/health` request via Postman. The response came back `503 Service Unavailable` with `"safety_events_last_hour": 0` in the body — confirmed by reading [api/routes/health.py](api/routes/health.py#L78), the field is hardcoded to `0` and never calls into `SafetyMonitor` (in [safety/monitoring.py](safety/monitoring.py)), which already has a working `log_event()`/`get_event_count()` API but isn't wired into the health check at all.
+
+**PLAN.md link:** [PLAN.md](https://github.com/galipcagan/pathreview/blob/fix/68-health-check-safety-event-count/PLAN.md)
+
+**Walkthrough video (recommended):** (not recorded)
+
+**Blockers or open questions:**
+- While reproducing, the `/health` endpoint also misreported `postgres` and `redis` as `"unhealthy"` even though both containers were confirmed healthy — two separate pre-existing bugs (a raw-SQL string passed where SQLAlchemy requires `text("SELECT 1")`, and a reference to a `Settings.redis_host` attribute that doesn't exist). Both are out of scope for this PR and not something I'm fixing here, but noting them since they're in the same file/function.
+- Also found: `SafetyMonitor.get_event_count()` accepts a `window_hours` parameter but never actually uses it — the Redis counter it reads just has a flat 24h TTL, not a real rolling window. Need to decide in the fix whether "last hour" should be a true rolling window (sorted-set based, mirroring `safety/rate_limiter.py`'s `RateLimiter` pattern) or a simpler hour-bucketed counter — see PLAN.md.
