@@ -52,3 +52,20 @@ Run final `make check`/`make test-unit` pass, open the PR (scoped to #68 only, p
 None.
 
 ---
+
+### Check-in 2 (end of week)
+
+**PR link:** https://github.com/ascherj/pathreview/pull/437
+
+**Branch:** `fix/68-health-check-safety-event-count`
+
+**What you built:**
+Wired `/health`'s `safety_events_last_hour` field to real data by rewriting `SafetyMonitor` to track events in a Redis sorted set (mirroring `RateLimiter`'s rolling-window pattern) instead of a flat 24h-TTL counter, then replacing the hardcoded `0` in `api/routes/health.py` with a live call into it. Verified end-to-end against the real local `db`/`redis` containers.
+
+**Tests added or updated:**
+`tests/unit/test_monitoring.py` (new) — 12 tests covering event logging, unknown-event-type handling, Redis-error fail-safe behavior, rolling-window pruning (default and custom `window_hours`), and the `get_total_event_count()` aggregate across all `VALID_EVENT_TYPES`.
+
+**Self-review confirmation:** [x] make check passes [x] make test-unit passes
+(53 pre-existing test failures and pre-existing lint/type findings unrelated to `safety/`/`api/routes/health.py` remain from before this branch's changes — confirmed no new failures were introduced.)
+
+**Draft PR feedback received from:** none yet
