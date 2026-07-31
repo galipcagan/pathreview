@@ -36,3 +36,19 @@ Started the backend locally (`uvicorn api.main:app --reload --host 0.0.0.0 --por
 **Blockers or open questions:**
 - While reproducing, the `/health` endpoint also misreported `postgres` and `redis` as `"unhealthy"` even though both containers were confirmed healthy — two separate pre-existing bugs (a raw-SQL string passed where SQLAlchemy requires `text("SELECT 1")`, and a reference to a `Settings.redis_host` attribute that doesn't exist). Both are out of scope for this PR and not something I'm fixing here, but noting them since they're in the same file/function.
 - Also found: `SafetyMonitor.get_event_count()` accepts a `window_hours` parameter but never actually uses it — the Redis counter it reads just has a flat 24h TTL, not a real rolling window. Need to decide in the fix whether "last hour" should be a true rolling window (sorted-set based, mirroring `safety/rate_limiter.py`'s `RateLimiter` pattern) or a simpler hour-bucketed counter — see PLAN.md.
+
+## Week 9 — Solution building & PR submission
+
+### Check-in 1 (mid-week)
+
+**Current progress:**
+Implemented the full fix per PLAN.md: `SafetyMonitor.log_event()`/`get_event_count()` in `safety/monitoring.py` now use a Redis sorted set (`ZADD`/`ZREMRANGEBYSCORE`/`ZCARD`), mirroring `RateLimiter`'s rolling-window pattern, so `window_hours` is finally honored. Added `get_total_event_count()` to sum across all `VALID_EVENT_TYPES` (the health field is singular, so a sum was the right shape). Wired this into `api/routes/health.py`, replacing the hardcoded `0`. Added 12 unit tests in `tests/unit/test_monitoring.py`. Verified live: started the backend against the real `db`/`redis` containers, manually called `log_event()` twice, and confirmed `GET /health` reported `"safety_events_last_hour": 2`, then back to `0` after cleanup.
+- While wiring this up, found a *third* pre-existing bug (beyond the `text("SELECT 1")` and `Settings.redis_host` ones noted in Week 8): the existing "Check Redis" block's `AttributeError` on `settings.redis_host` would have silently starved my new code too, since I originally reused that block's client. Fixed by having the safety-count block build its own Redis client via `redis.Redis.from_url(settings.redis_url)` — `redis_url` is the field that actually exists on `Settings`. This keeps the fix scoped to #68 without touching the unrelated `redis_host` bug in the existing health-check block.
+
+**Next steps:**
+Run final `make check`/`make test-unit` pass, open the PR (scoped to #68 only, per plan — the `text()` and `redis_host` bugs are documented but left unfixed), and request a peer/mentor review on the draft before finalizing.
+
+**Blockers:**
+None.
+
+---
