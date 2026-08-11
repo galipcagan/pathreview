@@ -69,3 +69,34 @@ Wired `/health`'s `safety_events_last_hour` field to real data by rewriting `Saf
 (53 pre-existing test failures and pre-existing lint/type findings unrelated to `safety/`/`api/routes/health.py` remain from before this branch's changes — confirmed no new failures were introduced.)
 
 **Draft PR feedback received from:** none yet
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [x] No — still awaiting review
+
+**Summary of feedback:**
+No review has landed on PR #437 as of this entry. (Su26 note: reviewer feedback isn't provided this term, so this is the expected outcome rather than a stalled PR.)
+
+**How you responded:**
+N/A — no feedback to respond to. Left the PR scoped exactly as submitted in Week 9 rather than making speculative changes with no review input to react to.
+
+---
+
+### Reflection
+
+**What was harder than expected?**
+The actual code change (wiring `SafetyMonitor` into `/health`) was small, but the path to it wasn't. `get_event_count()` already accepted a `window_hours` argument that did nothing — the underlying Redis counter was a flat 24h TTL, so "last hour" was a lie no matter what I wired up. Fixing that meant redesigning the storage (sorted set with `ZADD`/`ZREMRANGEBYSCORE`/`ZCARD`) before I could touch the endpoint at all. On top of that, I ran into three separate pre-existing bugs in the same function (`text("SELECT 1")`, a nonexistent `Settings.redis_host` attribute, and that same attribute silently starving my new code because I'd first reused the existing Redis client block). Deciding what was in-scope for #68 versus what to just document and leave alone took more judgment than the implementation did.
+
+**What did you learn about working in a large codebase?**
+That "wire A into B" issues are rarely just wiring — they're an invitation to audit whatever A and B are currently doing, and most of that audit is stuff you don't get to fix. I also learned to look for an existing pattern before inventing one: `safety/rate_limiter.py`'s `RateLimiter` already solved the rolling-window problem, so `SafetyMonitor` should look like it rather than reinvent it. And working async with a cohort — finding that RadRebelSam had already started on this same issue and branch name two weeks earlier — made me realize duplicate work is a real cost in a shared codebase, even in a course setting, and worth flagging rather than ignoring.
+
+**How did AI tools help — and where did they fall short?**
+AI assistance was most useful for scaffolding the rolling-window Redis logic quickly once I'd decided on the sorted-set approach, and for generating a broad first pass at the 12 unit tests — including edge cases like unknown event types and Redis-error fail-safe behavior that I might not have prioritized writing myself under time pressure. It fell short wherever the bug lived in the gap between what the code claims and what's actually configured — e.g., `Settings.redis_host` reads like a real field until you check `config.py` and see it's `redis_url`. No amount of static suggestion caught that; it only showed up by actually running the backend against live `db`/`redis` containers and watching it fail.
+
+**What would you do differently if you started over?**
+I'd check the issue thread and existing linked PR (#210) more carefully before picking the branch, since the overlap with another cohort member was avoidable. I'd also spend Week 8's reproduction pass specifically hunting for "is this field actually doing what its name claims" (the `window_hours` no-op) instead of finding that mid-implementation in Week 9 — that one discovery reshaped the whole plan and cost time it didn't need to.
+
+**What are you most proud of from this module?**
+Keeping the PR disciplined: fixing exactly the rolling-window bug the ticket was about, matching an existing codebase pattern (`RateLimiter`) instead of inventing a new one, and documenting — but deliberately not fixing — three unrelated pre-existing bugs I tripped over along the way. That scope discipline, backed by 12 tests and a real end-to-end verification against live containers, is the part I'd defend in a real code review.
